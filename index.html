@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>
+  To-Do</title>
+
+<!-- React, without needing npm/webpack/vite -->
+<script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+<link rel="stylesheet" href="todo.css" />
+</head>
+<body>
+
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+
+// config
+// TODO: replace with your real deployed backend URL once you have it, e.g.
+//   const API_BASE = "https://todo-backend.onrender.com";
+const API_BASE = "https://YOUR-BACKEND-URL.onrender.com";
+const API_KEY = "mysecretkey123"; // must match API_KEY in the backend's .env / host env vars
+
+async function apiFetch(path, options = {}) {
+  const res = await fetch(API_BASE + path, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      "X-API-Key": API_KEY,
+      ...(options.headers || {}),
+    },
+  });
+
+  if (!res.ok) {
+    let detail = res.statusText;
+    try {
+      const body = await res.json();
+      detail = body.detail || detail;
+    } catch (_) {
+    }
+    if (res.status === 401) {
+      throw new Error("401 Unauthorized: " + detail);
+    }
+    throw new Error(`${res.status}: ${detail}`);
+  }
+
+  if (res.status === 204) return null; 
+  return res.json();
+}
+
+function App() {
+  const [tasks, setTasks] = useState([]);
+  const [newText, setNewText] = useState("");
+  const [editingId, setEditingId] = useState(null);
+  const [editingText, setEditingText] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  async function loadTasks() {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await apiFetch("/tasks");
+      setTasks(data);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadTasks();
+  }, []);
+
+  async function handleAdd(e) {
+    e.preventDefault();
+    if (!newText.trim()) return;
+    setError(null);
+    try {
+      await apiFetch("/tasks", {
+        method: "POST",
+        body: JSON.stringify({ text: newText }),
+      });
+      setNewText("");
+      loadTasks();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function handleToggleDone(id) {
+    setError(null);
+    try {
+      await apiFetch(`/tasks/${id}`, { method: "PATCH" });
+      loadTasks();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function handleDelete(id) {
+    setError(null);
+    try {
+      await apiFetch(`/tasks/${id}`, { method: "DELETE" });
+      loadTasks();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  function startEdit(task) {
+    setEditingId(task.id);
+    setEditingText(task.text);
+  }
+
+  async function saveEdit(id) {
+    if (!editingText.trim()) return;
+    setError(null);
+    try {
+      await apiFetch(`/tasks/${id}`, {
+        method: "PUT",
+        body: JSON.stringify({ text: editingText }),
+      });
+      setEditingId(null);
+      loadTasks();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  return (
+    <div>
+      <h1 style={{ textAlign: "center" }}>To-Do</h1>
+
+      {error && (
+        <div className="error-banner">
+          Something went wrong: {error}
+        </div>
+      )}
+
+      <form onSubmit={handleAdd}>
+        <input
+          type="text"
+          placeholder="New task"
+          value={newText}
+          onChange={(e) => setNewText(e.target.value)}
+        />
+        <button type="submit" className="primary">Add</button>
+      </form>
+
+      <ul>
+        {tasks.map((task) => (
+          <li key={task.id}>
+            <input
+              type="checkbox"
+              checked={task.done}
+              onChange={() => handleToggleDone(task.id)}
+            />
+
+            {editingId === task.id ? (
+              <>
+                <input
+                  type="text"
+                  value={editingText}
+                  onChange={(e) => setEditingText(e.target.value)}
+                />
+                <button onClick={() => saveEdit(task.id)}>Save</button>
+                <button onClick={() => setEditingId(null)}>Cancel</button>
+              </>
+            ) : (
+              <>
+                <span className={"text" + (task.done ? " done" : "")}>
+                  {task.text}
+                </span>
+                <button onClick={() => startEdit(task)}>Edit</button>
+                <button className="danger" onClick={() => handleDelete(task.id)}>Delete</button>
+              </>
+            )}
+          </li>
+        ))}
+      </ul>
+
+      {!loading && tasks.length === 0 && !error && (
+        <p className="loading">No tasks yet — add one above.</p>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+
+</body>
+</html>
