@@ -19,12 +19,8 @@
 <script type="text/babel">
 const { useState, useEffect } = React;
 
-
-// config
-// TODO: replace with your real deployed backend URL once you have it, e.g.
-//   const API_BASE = "https://todo-backend.onrender.com";
-const API_BASE = "https://YOUR-BACKEND-URL.onrender.com";
-const API_KEY = "mysecretkey123"; 
+const API_BASE = "https://to-do-list-fzlx.onrender.com";
+const API_KEY = "22c9589a9e73eacdaad37136884d2151"; 
 
 async function apiFetch(path, options = {}) {
   const res = await fetch(API_BASE + path, {
