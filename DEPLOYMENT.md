@@ -77,7 +77,7 @@ directory** to `frontend`, leave build command empty, publish directory
 
 5. Go back to Render (or Railway) and set `ALLOWED_ORIGINS` to your new
    frontend URL, e.g. `https://your-app.vercel.app`, then redeploy/restart the
-   backend so CORS allows it. This is what lets the browser actually call
+   backend so CORS allows it. This is what lets th e browser actually call
    the API instead of getting blocked by CORS.
 
 ## Part D — End-to-end test on the live URLs
