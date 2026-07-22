@@ -20,14 +20,14 @@
 const { useState, useEffect } = React;
 
 const API_BASE = "https://to-do-list-fzlx.onrender.com";
-const API_KEY = "22c9589a9e73eacdaad37136884d2151"; 
+const TOKEN_STORAGE_KEY = "todo_token";
 
-async function apiFetch(path, options = {}) {
+async function apiFetch(token, path, options = {}) {
   const res = await fetch(API_BASE + path, {
     ...options,
     headers: {
       "Content-Type": "application/json",
-      "X-API-Key": API_KEY,
+      ...(token ? { Authorization: "Bearer " + token } : {}),
       ...(options.headers || {}),
     },
   });
@@ -39,17 +39,87 @@ async function apiFetch(path, options = {}) {
       detail = body.detail || detail;
     } catch (_) {
     }
-    if (res.status === 401) {
-      throw new Error("401 Unauthorized: " + detail);
-    }
-    throw new Error(`${res.status}: ${detail}`);
+    const err = new Error(detail);
+    err.status = res.status;
+    throw err;
   }
 
-  if (res.status === 204) return null; 
+  if (res.status === 204) return null;
   return res.json();
 }
 
-function App() {
+function AuthScreen({ onAuthenticated }) {
+  const [mode, setMode] = useState("login"); // "login" | "signup"
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setError(null);
+    setSubmitting(true);
+    try {
+      const data = await apiFetch(null, mode === "login" ? "/login" : "/signup", {
+        method: "POST",
+        body: JSON.stringify({ email, password }),
+      });
+      onAuthenticated(data.access_token);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div>
+      <h1 style={{ textAlign: "center" }}>To-Do</h1>
+
+      <div className="auth-tabs">
+        <button
+          type="button"
+          className={mode === "login" ? "primary" : ""}
+          onClick={() => { setMode("login"); setError(null); }}
+        >
+          Log in
+        </button>
+        <button
+          type="button"
+          className={mode === "signup" ? "primary" : ""}
+          onClick={() => { setMode("signup"); setError(null); }}
+        >
+          Sign up
+        </button>
+      </div>
+
+      {error && <div className="error-banner">Something went wrong: {error}</div>}
+
+      <form onSubmit={handleSubmit} className="auth-form">
+        <input
+          type="email"
+          placeholder="Email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          required
+        />
+        <input
+          type="password"
+          placeholder="Password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          minLength={mode === "signup" ? 8 : undefined}
+          required
+        />
+        <button type="submit" className="primary" disabled={submitting}>
+          {mode === "login" ? "Log in" : "Sign up"}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+function TodoApp({ token, onLogout }) {
   const [tasks, setTasks] = useState([]);
   const [newText, setNewText] = useState("");
   const [editingId, setEditingId] = useState(null);
@@ -57,14 +127,22 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  function handleError(err) {
+    if (err.status === 401) {
+      onLogout();
+      return;
+    }
+    setError(err.message);
+  }
+
   async function loadTasks() {
     setLoading(true);
     setError(null);
     try {
-      const data = await apiFetch("/tasks");
+      const data = await apiFetch(token, "/tasks");
       setTasks(data);
     } catch (err) {
-      setError(err.message);
+      handleError(err);
     } finally {
       setLoading(false);
     }
@@ -79,34 +157,34 @@ function App() {
     if (!newText.trim()) return;
     setError(null);
     try {
-      await apiFetch("/tasks", {
+      await apiFetch(token, "/tasks", {
         method: "POST",
         body: JSON.stringify({ text: newText }),
       });
       setNewText("");
       loadTasks();
     } catch (err) {
-      setError(err.message);
+      handleError(err);
     }
   }
 
   async function handleToggleDone(id) {
     setError(null);
     try {
-      await apiFetch(`/tasks/${id}`, { method: "PATCH" });
+      await apiFetch(token, `/tasks/${id}`, { method: "PATCH" });
       loadTasks();
     } catch (err) {
-      setError(err.message);
+      handleError(err);
     }
   }
 
   async function handleDelete(id) {
     setError(null);
     try {
-      await apiFetch(`/tasks/${id}`, { method: "DELETE" });
+      await apiFetch(token, `/tasks/${id}`, { method: "DELETE" });
       loadTasks();
     } catch (err) {
-      setError(err.message);
+      handleError(err);
     }
   }
 
@@ -119,20 +197,23 @@ function App() {
     if (!editingText.trim()) return;
     setError(null);
     try {
-      await apiFetch(`/tasks/${id}`, {
+      await apiFetch(token, `/tasks/${id}`, {
         method: "PUT",
         body: JSON.stringify({ text: editingText }),
       });
       setEditingId(null);
       loadTasks();
     } catch (err) {
-      setError(err.message);
+      handleError(err);
     }
   }
 
   return (
     <div>
-      <h1 style={{ textAlign: "center" }}>To-Do</h1>
+      <div className="topbar">
+        <h1>To-Do</h1>
+        <button onClick={onLogout}>Log out</button>
+      </div>
 
       {error && (
         <div className="error-banner">
@@ -189,7 +270,27 @@ function App() {
   );
 }
 
-ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+function Root() {
+  const [token, setToken] = useState(() => localStorage.getItem(TOKEN_STORAGE_KEY));
+
+  function handleAuthenticated(newToken) {
+    localStorage.setItem(TOKEN_STORAGE_KEY, newToken);
+    setToken(newToken);
+  }
+
+  function handleLogout() {
+    localStorage.removeItem(TOKEN_STORAGE_KEY);
+    setToken(null);
+  }
+
+  return token ? (
+    <TodoApp token={token} onLogout={handleLogout} />
+  ) : (
+    <AuthScreen onAuthenticated={handleAuthenticated} />
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<Root />);
 </script>
 
 </body>
