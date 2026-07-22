@@ -11,12 +11,9 @@ import sqlalchemy
 import sqlalchemy.exc
 import sqlalchemy.orm
 
-# Load variables from .env into the environment. In production (Render/Railway)
-# you won't have a .env file at all -- you'll set these as dashboard env vars,
-# and load_dotenv() just quietly does nothing in that case.
 load_dotenv()
 
-JWT_SECRET = os.environ["JWT_SECRET"]      # required -- app fails fast if missing
+JWT_SECRET = os.environ["JWT_SECRET"]    
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_MINUTES = int(os.environ.get("JWT_EXPIRE_MINUTES", "1440"))  # 24h
 DB_PATH = os.environ.get("DB_PATH", "todos.db")
@@ -171,9 +168,6 @@ def get_current_user(authorization: str | None = Header(default=None)) -> User:
 
 app = FastAPI()
 
-# Comma-separated list of allowed frontend origins, e.g.
-#   ALLOWED_ORIGINS=https://your-app.vercel.app,http://localhost:5500
-# Falls back to "*" for local dev convenience only.
 allowed_origins = os.environ.get("ALLOWED_ORIGINS", "*")
 origins = [o.strip() for o in allowed_origins.split(",")] if allowed_origins != "*" else ["*"]
 
