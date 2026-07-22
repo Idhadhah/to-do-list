@@ -35,9 +35,6 @@ class Task(Base):
     id = sqlalchemy.Column(sqlalchemy.Integer, primary_key=True, autoincrement=True)
     text = sqlalchemy.Column("task", sqlalchemy.String, nullable=False)
     done = sqlalchemy.Column(sqlalchemy.Boolean, nullable=False, default=False)
-    # Foreign key: this is what makes a task belong to exactly one user, while
-    # a user can have many tasks (one-to-many). Every ownership check below
-    # comes down to filtering on this column.
     user_id = sqlalchemy.Column(sqlalchemy.Integer, sqlalchemy.ForeignKey("users.id"), nullable=False)
 
     def toggle_done(self):
