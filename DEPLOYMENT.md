@@ -98,13 +98,3 @@ If step 1 fails with a CORS error in the console, it's almost always
 `ALLOWED_ORIGINS` on the backend not matching your frontend's exact URL
 (including `https://`, no trailing slash). If it fails with a 401, the
 `API_KEY` values on frontend and backend don't match.
-
-## Part E — Final repo cleanup
-
-- Confirm `README.md` and this `DEPLOYMENT.md` are committed.
-- Confirm `backend/.env` was never committed (`git log --all --full-history -- backend/.env` should return nothing).
-- Squash or leave your commit history as-is, but make sure commit messages
-  describe what changed (e.g. "Add Docker support", "Load secrets from
-  .env", "Point frontend at deployed backend") rather than "wip" / "fix".
-- Add a short repo description and topics (e.g. `fastapi`, `react`,
-  `todo-app`) on the GitHub repo page for discoverability.
