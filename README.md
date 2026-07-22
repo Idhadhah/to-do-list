@@ -99,16 +99,3 @@ All endpoints require header `X-API-Key: <API_KEY>`.
 | PATCH | `/tasks/{id}` | Toggle a task's done state |
 | PUT | `/tasks/{id}` | Edit a task's text — body `{"text": "..."}` |
 | DELETE | `/tasks/{id}` | Delete a task |
-
-## Deployment
-
-This app is deployed with:
-
-- **Backend → Render:** Web Service, Docker environment, root directory
-  `backend`, environment variables `API_KEY`, `DB_PATH`, and
-  `ALLOWED_ORIGINS` set in the Render dashboard.
-- **Frontend → Vercel:** static project, root directory `frontend`,
-  framework preset "Other" (no build step).
-
-See `DEPLOYMENT.md` for the full step-by-step walkthrough, including how to
-redeploy or point this at a different Render/Vercel project.
