@@ -112,12 +112,3 @@ This app is deployed with:
 
 See `DEPLOYMENT.md` for the full step-by-step walkthrough, including how to
 redeploy or point this at a different Render/Vercel project.
-
-## Security note
-
-This is a demo-grade auth setup: a single static API key shipped in the
-frontend's JS source, visible to anyone who views the page source or the
-network tab. That's fine for a personal/learning project, but don't reuse
-this pattern for anything with real user data — you'd want per-user auth
-(e.g. OAuth or signed tokens) instead of one shared key baked into public
-client code.
