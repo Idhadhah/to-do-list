@@ -47,7 +47,7 @@ python -m venv venv
 source venv/bin/activate      # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 
-cp .env.example .env          # then edit .env and set your own API_KEY
+Copy-Item .env.example .env
 
 uvicorn main:app --reload
 ```

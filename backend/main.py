@@ -1,12 +1,12 @@
 import os
 from datetime import datetime, timedelta, timezone
-
 import bcrypt
 import jwt
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Depends, Header, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, Field
+from typing import Literal
 import sqlalchemy
 import sqlalchemy.exc
 import sqlalchemy.orm
@@ -29,13 +29,16 @@ class User(Base):
     hashed_password = sqlalchemy.Column(sqlalchemy.String, nullable=False)
 
 
-class Task(Base):
+class Task(Base): 
     __tablename__ = "tasks"
 
     id = sqlalchemy.Column(sqlalchemy.Integer, primary_key=True, autoincrement=True)
     text = sqlalchemy.Column("task", sqlalchemy.String, nullable=False)
     done = sqlalchemy.Column(sqlalchemy.Boolean, nullable=False, default=False)
     user_id = sqlalchemy.Column(sqlalchemy.Integer, sqlalchemy.ForeignKey("users.id"), nullable=False)
+    due_date = sqlalchemy.Column(sqlalchemy.DateTime, nullable=True)
+    recurrence = sqlalchemy.Column(sqlalchemy.String, nullable = True, default = "none")
+
 
     def toggle_done(self):
         self.done = not self.done
@@ -43,6 +46,18 @@ class Task(Base):
 
 engine = sqlalchemy.create_engine(f"sqlite:///{DB_PATH}")
 Base.metadata.create_all(engine)
+
+def run_migrations():
+    inspector = sqlalchemy.inspect(engine)
+    existing_columns = [col["name"] for col in inspector.get_columns("tasks")]
+
+    with engine.begin() as conn:
+        if "due_date" not in existing_columns:
+            conn.execute(sqlalchemy.text("ALTER TABLE tasks ADD COLUMN due_date DATETIME"))
+        if "recurrence" not in existing_columns:
+            conn.execute(sqlalchemy.text("ALTER TABLE tasks ADD COLUMN recurrence TEXT DEFAULT 'none'"))
+run_migrations()
+
 Session = sqlalchemy.orm.sessionmaker(bind=engine)
 
 
@@ -81,9 +96,6 @@ class TaskStorage:
         return tasks
 
     def get_by_id(self, user_id, task_id):
-        # Filtering by user_id here (not just task_id) is what stops one user
-        # from reading, editing, or deleting another user's task -- even if
-        # they know or guess its id. A mismatch looks exactly like "not found".
         with Session() as session:
             task = session.query(Task).filter(Task.id == task_id, Task.user_id == user_id).first()
             if task:
@@ -110,8 +122,6 @@ class TaskStorage:
 
 class SignupRequest(BaseModel):
     email: EmailStr
-    # bcrypt ignores anything past 72 bytes, so cap the input instead of
-    # silently truncating it.
     password: str = Field(..., min_length=8, max_length=72)
 
 
@@ -127,11 +137,14 @@ class TokenResponse(BaseModel):
 
 class NewTask(BaseModel):
     text: str = Field(..., min_length=1)
+    due_date: datetime | None = None
+    recurrence: Literal["none", "daily", "weekly", "monthly"] | None = "none"
 
 
 class TaskUpdate(BaseModel):
     text: str = Field(..., min_length=1)
-
+    due_date: datetime | None = None
+    recurrence: Literal["none", "daily", "weekly", "monthly"] | None = "none"
 
 def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
@@ -209,15 +222,33 @@ def login(body: LoginRequest):
 
 @app.post("/tasks", status_code=status.HTTP_201_CREATED)
 def add_task(task_in: NewTask, current_user: User = Depends(get_current_user)):
-    task = Task(text=task_in.text, user_id=current_user.id)
+    task = Task(
+        text=task_in.text,
+        due_date=task_in.due_date,
+        recurrence=task_in.recurrence,
+        user_id=current_user.id,
+    )
     storage.insert(task)
-    return {"id": task.id, "text": task.text, "done": task.done}
-
+    return {
+        "id": task.id,
+        "text": task.text,
+        "done": task.done,
+        "due_date": task.due_date,
+        "recurrence": task.recurrence,
+    }
 
 @app.get("/tasks")
 def list_tasks(current_user: User = Depends(get_current_user)):
-    return [{"id": t.id, "text": t.text, "done": t.done} for t in storage.get_all(current_user.id)]
-
+    return [
+        {
+            "id": t.id,
+            "text": t.text,
+            "done": t.done,
+            "due_date": t.due_date,
+            "recurrence": t.recurrence,
+        }
+        for t in storage.get_all(current_user.id)
+    ]
 
 @app.patch("/tasks/{task_id}")
 def toggle_task(task_id: int, current_user: User = Depends(get_current_user)):
@@ -226,8 +257,13 @@ def toggle_task(task_id: int, current_user: User = Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="Task not found")
     task.toggle_done()
     storage.update(task)
-    return {"id": task.id, "text": task.text, "done": task.done}
-
+    return {
+        "id": task.id,
+        "text": task.text,
+        "done": task.done,
+        "due_date": task.due_date,
+        "recurrence": task.recurrence,
+    }
 
 @app.put("/tasks/{task_id}")
 def edit_task(task_id: int, task_in: TaskUpdate, current_user: User = Depends(get_current_user)):
@@ -235,9 +271,16 @@ def edit_task(task_id: int, task_in: TaskUpdate, current_user: User = Depends(ge
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     task.text = task_in.text
+    task.due_date = task_in.due_date
+    task.recurrence = task_in.recurrence
     storage.update(task)
-    return {"id": task.id, "text": task.text, "done": task.done}
-
+    return {
+        "id": task.id,
+        "text": task.text,
+        "done": task.done,
+        "due_date": task.due_date,
+        "recurrence": task.recurrence,
+    }
 
 @app.delete("/tasks/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
 def remove_task(task_id: int, current_user: User = Depends(get_current_user)):
