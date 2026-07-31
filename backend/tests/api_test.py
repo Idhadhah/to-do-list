@@ -1,4 +1,3 @@
-
 from tests.conftest import auth_header, signup
 
 # 1. Signup and login
@@ -40,6 +39,49 @@ def test_create_task_while_logged_in_succeeds(client):
     body = resp.json()
     assert body["text"] == "buy milk"
     assert body["done"] is False
+
+
+def test_create_task_without_due_date_or_recurrence_uses_defaults(client):
+    token = signup(client)
+    resp = client.post("/tasks", json={"text": "buy milk"}, headers=auth_header(token))
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["due_date"] is None
+    assert body["recurrence"] == "none"
+
+
+def test_create_task_with_due_date_and_recurrence(client):
+    token = signup(client)
+    resp = client.post(
+        "/tasks",
+        json={
+            "text": "pay rent",
+            "due_date": "2026-08-01T00:00:00",
+            "recurrence": "monthly",
+        },
+        headers=auth_header(token),
+    )
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["due_date"] == "2026-08-01T00:00:00"
+    assert body["recurrence"] == "monthly"
+
+
+def test_edit_task_updates_due_date_and_recurrence(client):
+    token = signup(client)
+    task = client.post(
+        "/tasks", json={"text": "water plants"}, headers=auth_header(token)
+    ).json()
+
+    resp = client.put(
+        f"/tasks/{task['id']}",
+        json={"text": "water plants", "due_date": "2026-09-01T00:00:00", "recurrence": "weekly"},
+        headers=auth_header(token),
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["due_date"] == "2026-09-01T00:00:00"
+    assert body["recurrence"] == "weekly"
 
 
 def test_create_task_without_auth_is_rejected(client):
@@ -86,7 +128,7 @@ def test_user_cannot_edit_another_users_task(client):
 
     # Confirm B's task is untouched.
     b_tasks = client.get("/tasks", headers=auth_header(token_b)).json()
-    assert b_tasks == [{"id": b_task["id"], "text": "B's private task", "done": False}]
+    assert b_tasks == [{"id": b_task["id"],"text": "B's private task","done": False,"due_date": None,"recurrence": "none",}]
 
 
 def test_user_cannot_delete_another_users_task(client):
