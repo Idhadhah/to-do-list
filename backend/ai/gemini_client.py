@@ -17,7 +17,7 @@ def _get_client() -> genai.Client:
     return genai.Client(api_key=api_key)
 
 
-def generate_text(prompt: str, model: str = "gemini-2.0-flash") -> str:
+def generate_text(prompt: str, model: str = "gemini-flash-latest") -> str:
     """
     Send a plain text prompt to Gemini and return its plain text response.
 

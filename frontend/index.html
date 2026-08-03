@@ -21,6 +21,7 @@ const { useState, useEffect } = React;
 
 const API_BASE = "https://to-do-list-fzlx.onrender.com";
 const TOKEN_STORAGE_KEY = "todo_token";
+const RECURRENCE_OPTIONS = ["none", "daily", "weekly", "monthly"];
 
 async function apiFetch(token, path, options = {}) {
   const res = await fetch(API_BASE + path, {
@@ -46,6 +47,18 @@ async function apiFetch(token, path, options = {}) {
 
   if (res.status === 204) return null;
   return res.json();
+}
+
+// Converts a raw ISO datetime string from the API (e.g. "2026-08-03T17:00:00")
+// into the format the <input type="datetime-local"> control expects
+// ("2026-08-03T17:00"), and vice versa.
+function toDatetimeLocalValue(isoString) {
+  if (!isoString) return "";
+  return isoString.slice(0, 16);
+}
+
+function fromDatetimeLocalValue(value) {
+  return value ? value : null;
 }
 
 function AuthScreen({ onAuthenticated }) {
@@ -122,10 +135,19 @@ function AuthScreen({ onAuthenticated }) {
 function TodoApp({ token, onLogout }) {
   const [tasks, setTasks] = useState([]);
   const [newText, setNewText] = useState("");
+  const [newDueDate, setNewDueDate] = useState("");
+  const [newRecurrence, setNewRecurrence] = useState("none");
   const [editingId, setEditingId] = useState(null);
   const [editingText, setEditingText] = useState("");
+  const [editingDueDate, setEditingDueDate] = useState("");
+  const [editingRecurrence, setEditingRecurrence] = useState("none");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  // --- smart add state ---
+  const [smartText, setSmartText] = useState("");
+  const [parsing, setParsing] = useState(false);
+  const [preview, setPreview] = useState(null); // { title, due_date, recurrence }
 
   function handleError(err) {
     if (err.status === 401) {
@@ -159,9 +181,53 @@ function TodoApp({ token, onLogout }) {
     try {
       await apiFetch(token, "/tasks", {
         method: "POST",
-        body: JSON.stringify({ text: newText }),
+        body: JSON.stringify({
+          text: newText,
+          due_date: fromDatetimeLocalValue(newDueDate),
+          recurrence: newRecurrence,
+        }),
       });
       setNewText("");
+      setNewDueDate("");
+      setNewRecurrence("none");
+      loadTasks();
+    } catch (err) {
+      handleError(err);
+    }
+  }
+
+  async function handleSmartParse(e) {
+    e.preventDefault();
+    if (!smartText.trim()) return;
+    setError(null);
+    setParsing(true);
+    try {
+      const data = await apiFetch(token, "/tasks/parse", {
+        method: "POST",
+        body: JSON.stringify({ description: smartText }),
+      });
+      setPreview(data);
+    } catch (err) {
+      handleError(err);
+    } finally {
+      setParsing(false);
+    }
+  }
+
+  async function confirmSmartAdd() {
+    if (!preview) return;
+    setError(null);
+    try {
+      await apiFetch(token, "/tasks", {
+        method: "POST",
+        body: JSON.stringify({
+          text: preview.title,
+          due_date: preview.due_date,
+          recurrence: preview.recurrence,
+        }),
+      });
+      setSmartText("");
+      setPreview(null);
       loadTasks();
     } catch (err) {
       handleError(err);
@@ -191,6 +257,8 @@ function TodoApp({ token, onLogout }) {
   function startEdit(task) {
     setEditingId(task.id);
     setEditingText(task.text);
+    setEditingDueDate(toDatetimeLocalValue(task.due_date));
+    setEditingRecurrence(task.recurrence || "none");
   }
 
   async function saveEdit(id) {
@@ -199,7 +267,11 @@ function TodoApp({ token, onLogout }) {
     try {
       await apiFetch(token, `/tasks/${id}`, {
         method: "PUT",
-        body: JSON.stringify({ text: editingText }),
+        body: JSON.stringify({
+          text: editingText,
+          due_date: fromDatetimeLocalValue(editingDueDate),
+          recurrence: editingRecurrence,
+        }),
       });
       setEditingId(null);
       loadTasks();
@@ -228,8 +300,43 @@ function TodoApp({ token, onLogout }) {
           value={newText}
           onChange={(e) => setNewText(e.target.value)}
         />
+        <input
+          type="datetime-local"
+          value={newDueDate}
+          onChange={(e) => setNewDueDate(e.target.value)}
+        />
+        <select
+          value={newRecurrence}
+          onChange={(e) => setNewRecurrence(e.target.value)}
+        >
+          {RECURRENCE_OPTIONS.map((opt) => (
+            <option key={opt} value={opt}>{opt}</option>
+          ))}
+        </select>
         <button type="submit" className="primary">Add</button>
       </form>
+
+      <form onSubmit={handleSmartParse}>
+        <input
+          type="text"
+          placeholder='Try: "remind me to call mom every Sunday at 6pm"'
+          value={smartText}
+          onChange={(e) => setSmartText(e.target.value)}
+        />
+        <button type="submit" className="primary" disabled={parsing}>
+          {parsing ? "Parsing..." : "Smart Add"}
+        </button>
+      </form>
+
+      {preview && (
+        <div className="error-banner">
+          <p><strong>{preview.title}</strong></p>
+          <p>Due: {preview.due_date || "no date"}</p>
+          <p>Repeats: {preview.recurrence}</p>
+          <button className="primary" onClick={confirmSmartAdd}>Confirm & Save</button>
+          <button onClick={() => setPreview(null)}>Discard</button>
+        </div>
+      )}
 
       <ul>
         {tasks.map((task) => (
@@ -247,6 +354,19 @@ function TodoApp({ token, onLogout }) {
                   value={editingText}
                   onChange={(e) => setEditingText(e.target.value)}
                 />
+                <input
+                  type="datetime-local"
+                  value={editingDueDate}
+                  onChange={(e) => setEditingDueDate(e.target.value)}
+                />
+                <select
+                  value={editingRecurrence}
+                  onChange={(e) => setEditingRecurrence(e.target.value)}
+                >
+                  {RECURRENCE_OPTIONS.map((opt) => (
+                    <option key={opt} value={opt}>{opt}</option>
+                  ))}
+                </select>
                 <button onClick={() => saveEdit(task.id)}>Save</button>
                 <button onClick={() => setEditingId(null)}>Cancel</button>
               </>
@@ -254,6 +374,11 @@ function TodoApp({ token, onLogout }) {
               <>
                 <span className={"text" + (task.done ? " done" : "")}>
                   {task.text}
+                </span>
+                <span className="task-meta">
+                  {task.due_date ? new Date(task.due_date).toLocaleString() : "no due date"}
+                  {" · "}
+                  {task.recurrence || "none"}
                 </span>
                 <button onClick={() => startEdit(task)}>Edit</button>
                 <button className="danger" onClick={() => handleDelete(task.id)}>Delete</button>

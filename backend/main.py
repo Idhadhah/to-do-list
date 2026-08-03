@@ -11,6 +11,9 @@ import sqlalchemy
 import sqlalchemy.exc
 import sqlalchemy.orm
 
+from ai.gemini_client import GeminiClientError
+from ai.task_parser import parse_task_description
+
 load_dotenv()
 
 JWT_SECRET = os.environ["JWT_SECRET"]    
@@ -146,6 +149,16 @@ class TaskUpdate(BaseModel):
     due_date: datetime | None = None
     recurrence: Literal["none", "daily", "weekly", "monthly"] | None = "none"
 
+
+class ParseRequest(BaseModel):
+    description: str = Field(..., min_length=1)
+
+
+class ParsedTaskResponse(BaseModel):
+    title: str
+    due_date: datetime | None = None
+    recurrence: Literal["none", "daily", "weekly", "monthly"] = "none"
+
 def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
@@ -236,6 +249,32 @@ def add_task(task_in: NewTask, current_user: User = Depends(get_current_user)):
         "due_date": task.due_date,
         "recurrence": task.recurrence,
     }
+
+@app.post("/tasks/parse", response_model=ParsedTaskResponse)
+def parse_task(body: ParseRequest, current_user: User = Depends(get_current_user)):
+    try:
+        raw = parse_task_description(body.description)
+    except GeminiClientError as e:
+        raise HTTPException(status_code=502, detail=f"AI parsing failed: {e}")
+    except ValueError as e:
+        raise HTTPException(status_code=502, detail=f"AI returned unusable output: {e}")
+
+    title = raw.get("title")
+    if not title or not isinstance(title, str) or not title.strip():
+        title = body.description.strip()[:200]
+
+    due_date = None
+    if raw.get("due_date"):
+        try:
+            due_date = datetime.fromisoformat(str(raw["due_date"]))
+        except ValueError:
+            due_date = None
+
+    recurrence = raw.get("recurrence")
+    if recurrence not in ("none", "daily", "weekly", "monthly"):
+        recurrence = "none"
+
+    return ParsedTaskResponse(title=title, due_date=due_date, recurrence=recurrence)
 
 @app.get("/tasks")
 def list_tasks(current_user: User = Depends(get_current_user)):
