@@ -13,6 +13,8 @@ import sqlalchemy.orm
 
 from ai.gemini_client import GeminiClientError
 from ai.task_parser import parse_task_description
+from ai.task_summary import summarize_tasks
+
 
 load_dotenv()
 
@@ -159,6 +161,10 @@ class ParsedTaskResponse(BaseModel):
     due_date: datetime | None = None
     recurrence: Literal["none", "daily", "weekly", "monthly"] = "none"
 
+class TaskSummaryResponse(BaseModel):
+    summary: str
+    priority_order: list[int]
+
 def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
@@ -288,6 +294,45 @@ def list_tasks(current_user: User = Depends(get_current_user)):
         }
         for t in storage.get_all(current_user.id)
     ]
+
+@app.get("/tasks/summary", response_model=TaskSummaryResponse)
+def get_task_summary(current_user: User = Depends(get_current_user)):
+    user_tasks = storage.get_all(current_user.id)
+
+    if not user_tasks:
+        return TaskSummaryResponse(summary="No tasks yet.", priority_order=[])
+
+    task_dicts = [
+        {
+            "id": t.id,
+            "text": t.text,
+            "due_date": t.due_date.isoformat() if t.due_date else None,
+            "recurrence": t.recurrence,
+            "done": t.done,
+        }
+        for t in user_tasks
+    ]
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    try:
+        raw = summarize_tasks(task_dicts, today)
+    except GeminiClientError as e:
+        raise HTTPException(status_code=502, detail=f"AI summary failed: {e}")
+    except ValueError as e:
+        raise HTTPException(status_code=502, detail=f"AI returned unusable output: {e}")
+
+    summary = raw.get("summary")
+    if not summary or not isinstance(summary, str):
+        summary = "Summary unavailable."
+
+    valid_ids = {t["id"] for t in task_dicts}
+    priority_order = raw.get("priority_order")
+    if not isinstance(priority_order, list):
+        priority_order = []
+    else:
+        priority_order = [pid for pid in priority_order if pid in valid_ids]
+
+    return TaskSummaryResponse(summary=summary, priority_order=priority_order)
 
 @app.patch("/tasks/{task_id}")
 def toggle_task(task_id: int, current_user: User = Depends(get_current_user)):
