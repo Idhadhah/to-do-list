@@ -1,5 +1,6 @@
-from tests.conftest import auth_header, signup
+from unittest.mock import patch
 
+from tests.conftest import auth_header, signup
 # 1. Signup and login
 
 def test_signup_then_login_succeeds(client):
@@ -177,3 +178,43 @@ def test_editing_task_to_empty_text_is_rejected(client):
         f"/tasks/{task['id']}", json={"text": ""}, headers=auth_header(token)
     )
     assert resp.status_code == 422
+
+# Confirms the summary only includes the logged-in user's own tasks, never another user's.
+def test_summary_only_reflects_own_tasks(client):
+    token_a = signup(client, "a2@example.com")
+    token_b = signup(client, "b2@example.com")
+
+    client.post("/tasks", json={"text": "A's task"}, headers=auth_header(token_a))
+    client.post("/tasks", json={"text": "B's task 1"}, headers=auth_header(token_b))
+    client.post("/tasks", json={"text": "B's task 2"}, headers=auth_header(token_b))
+
+    with patch("main.summarize_tasks") as mock_summarize:
+        mock_summarize.return_value = {"summary": "You have 1 task.", "priority_order": []}
+        resp = client.get("/tasks/summary", headers=auth_header(token_a))
+
+    assert resp.status_code == 200
+    called_tasks = mock_summarize.call_args[0][0]
+    assert len(called_tasks) == 1
+    assert called_tasks[0]["text"] == "A's task"
+
+
+# Confirms an empty task list returns "No tasks yet." without calling Gemini at all.
+def test_summary_with_no_tasks_returns_clean_response_without_calling_gemini(client):
+    token = signup(client, "empty@example.com")
+    with patch("main.summarize_tasks") as mock_summarize:
+        resp = client.get("/tasks/summary", headers=auth_header(token))
+
+    assert resp.status_code == 200
+    assert resp.json()["summary"] == "No tasks yet."
+    mock_summarize.assert_not_called()
+
+
+# Confirms a Gemini failure returns a clean 502 instead of an unhandled crash.
+def test_summary_handles_gemini_failure_gracefully(client):
+    token = signup(client, "failtest@example.com")
+    client.post("/tasks", json={"text": "some task"}, headers=auth_header(token))
+
+    with patch("main.summarize_tasks", side_effect=ValueError("bad json")):
+        resp = client.get("/tasks/summary", headers=auth_header(token))
+
+    assert resp.status_code == 502

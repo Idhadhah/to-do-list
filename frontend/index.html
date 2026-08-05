@@ -49,9 +49,6 @@ async function apiFetch(token, path, options = {}) {
   return res.json();
 }
 
-// Converts a raw ISO datetime string from the API (e.g. "2026-08-03T17:00:00")
-// into the format the <input type="datetime-local"> control expects
-// ("2026-08-03T17:00"), and vice versa.
 function toDatetimeLocalValue(isoString) {
   if (!isoString) return "";
   return isoString.slice(0, 16);
@@ -59,6 +56,16 @@ function toDatetimeLocalValue(isoString) {
 
 function fromDatetimeLocalValue(value) {
   return value ? value : null;
+}
+
+function sortByPriority(tasks, priorityOrder) {
+  if (!priorityOrder || priorityOrder.length === 0) return tasks;
+  const orderIndex = new Map(priorityOrder.map((id, i) => [id, i]));
+  return [...tasks].sort((a, b) => {
+    const aRank = orderIndex.has(a.id) ? orderIndex.get(a.id) : Infinity;
+    const bRank = orderIndex.has(b.id) ? orderIndex.get(b.id) : Infinity;
+    return aRank - bRank;
+  });
 }
 
 function AuthScreen({ onAuthenticated }) {
@@ -144,10 +151,11 @@ function TodoApp({ token, onLogout }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // --- smart add state ---
   const [smartText, setSmartText] = useState("");
   const [parsing, setParsing] = useState(false);
-  const [preview, setPreview] = useState(null); // { title, due_date, recurrence }
+  const [preview, setPreview] = useState(null);
+
+  const [summary, setSummary] = useState(null);
 
   function handleError(err) {
     if (err.status === 401) {
@@ -170,8 +178,18 @@ function TodoApp({ token, onLogout }) {
     }
   }
 
+  async function loadSummary() {
+    try {
+      const data = await apiFetch(token, "/tasks/summary");
+      setSummary(data);
+    } catch (err) {
+      console.error("Summary failed:", err);
+    }
+  }
+
   useEffect(() => {
     loadTasks();
+    loadSummary();
   }, []);
 
   async function handleAdd(e) {
@@ -191,6 +209,7 @@ function TodoApp({ token, onLogout }) {
       setNewDueDate("");
       setNewRecurrence("none");
       loadTasks();
+      loadSummary();
     } catch (err) {
       handleError(err);
     }
@@ -229,6 +248,7 @@ function TodoApp({ token, onLogout }) {
       setSmartText("");
       setPreview(null);
       loadTasks();
+      loadSummary();
     } catch (err) {
       handleError(err);
     }
@@ -239,6 +259,7 @@ function TodoApp({ token, onLogout }) {
     try {
       await apiFetch(token, `/tasks/${id}`, { method: "PATCH" });
       loadTasks();
+      loadSummary();
     } catch (err) {
       handleError(err);
     }
@@ -249,6 +270,7 @@ function TodoApp({ token, onLogout }) {
     try {
       await apiFetch(token, `/tasks/${id}`, { method: "DELETE" });
       loadTasks();
+      loadSummary();
     } catch (err) {
       handleError(err);
     }
@@ -275,10 +297,13 @@ function TodoApp({ token, onLogout }) {
       });
       setEditingId(null);
       loadTasks();
+      loadSummary();
     } catch (err) {
       handleError(err);
     }
   }
+
+  const orderedTasks = sortByPriority(tasks, summary?.priority_order);
 
   return (
     <div>
@@ -290,6 +315,12 @@ function TodoApp({ token, onLogout }) {
       {error && (
         <div className="error-banner">
           Something went wrong: {error}
+        </div>
+      )}
+
+      {summary && (
+        <div className="error-banner">
+          <p>{summary.summary}</p>
         </div>
       )}
 
@@ -339,7 +370,7 @@ function TodoApp({ token, onLogout }) {
       )}
 
       <ul>
-        {tasks.map((task) => (
+        {orderedTasks.map((task) => (
           <li key={task.id}>
             <input
               type="checkbox"
