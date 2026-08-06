@@ -19,8 +19,10 @@
 <script type="text/babel">
 const { useState, useEffect } = React;
 
-const API_BASE = "https://to-do-list-fzlx.onrender.com";
+const API_BASE = "http://127.0.0.1:8000";
 const TOKEN_STORAGE_KEY = "todo_token";
+const SUMMARY_CACHE_KEY = "todo_summary_cache";
+const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
 const RECURRENCE_OPTIONS = ["none", "daily", "weekly", "monthly"];
 
 async function apiFetch(token, path, options = {}) {
@@ -66,6 +68,15 @@ function sortByPriority(tasks, priorityOrder) {
     const bRank = orderIndex.has(b.id) ? orderIndex.get(b.id) : Infinity;
     return aRank - bRank;
   });
+}
+
+function loadCachedSummary() {
+  try {
+    const raw = localStorage.getItem(SUMMARY_CACHE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
 }
 
 function AuthScreen({ onAuthenticated }) {
@@ -155,7 +166,9 @@ function TodoApp({ token, onLogout }) {
   const [parsing, setParsing] = useState(false);
   const [preview, setPreview] = useState(null);
 
-  const [summary, setSummary] = useState(null);
+  const [summaryCache, setSummaryCache] = useState(loadCachedSummary);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [summaryError, setSummaryError] = useState(null);
 
   function handleError(err) {
     if (err.status === 401) {
@@ -178,12 +191,28 @@ function TodoApp({ token, onLogout }) {
     }
   }
 
-  async function loadSummary() {
+  function saveSummaryCache(cache) {
+    setSummaryCache(cache);
+    localStorage.setItem(SUMMARY_CACHE_KEY, JSON.stringify(cache));
+  }
+
+  async function loadSummary(force = false) {
+    const now = Date.now();
+    const isStale = !summaryCache || (now - summaryCache.fetchedAt) > TWENTY_FOUR_HOURS_MS;
+
+    if (!force && !isStale) {
+      return;
+    }
+
+    setSummaryLoading(true);
+    setSummaryError(null);
     try {
       const data = await apiFetch(token, "/tasks/summary");
-      setSummary(data);
+      saveSummaryCache({ data, fetchedAt: now });
     } catch (err) {
-      console.error("Summary failed:", err);
+      setSummaryError(err.message);
+    } finally {
+      setSummaryLoading(false);
     }
   }
 
@@ -209,7 +238,7 @@ function TodoApp({ token, onLogout }) {
       setNewDueDate("");
       setNewRecurrence("none");
       loadTasks();
-      loadSummary();
+      loadSummary(true);
     } catch (err) {
       handleError(err);
     }
@@ -248,7 +277,7 @@ function TodoApp({ token, onLogout }) {
       setSmartText("");
       setPreview(null);
       loadTasks();
-      loadSummary();
+      loadSummary(true);
     } catch (err) {
       handleError(err);
     }
@@ -259,7 +288,7 @@ function TodoApp({ token, onLogout }) {
     try {
       await apiFetch(token, `/tasks/${id}`, { method: "PATCH" });
       loadTasks();
-      loadSummary();
+      loadSummary(true);
     } catch (err) {
       handleError(err);
     }
@@ -270,7 +299,7 @@ function TodoApp({ token, onLogout }) {
     try {
       await apiFetch(token, `/tasks/${id}`, { method: "DELETE" });
       loadTasks();
-      loadSummary();
+      loadSummary(true);
     } catch (err) {
       handleError(err);
     }
@@ -297,13 +326,13 @@ function TodoApp({ token, onLogout }) {
       });
       setEditingId(null);
       loadTasks();
-      loadSummary();
+      loadSummary(true);
     } catch (err) {
       handleError(err);
     }
   }
 
-  const orderedTasks = sortByPriority(tasks, summary?.priority_order);
+  const orderedTasks = sortByPriority(tasks, summaryCache?.data?.priority_order);
 
   return (
     <div>
@@ -318,9 +347,15 @@ function TodoApp({ token, onLogout }) {
         </div>
       )}
 
-      {summary && (
+      {summaryLoading && (
+        <div className="loading">Loading summary...</div>
+      )}
+      {summaryError && (
+        <div className="error-banner">Summary unavailable: {summaryError}</div>
+      )}
+      {summaryCache && !summaryLoading && (
         <div className="error-banner">
-          <p>{summary.summary}</p>
+          <p>{summaryCache.data.summary}</p>
         </div>
       )}
 
