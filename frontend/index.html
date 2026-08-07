@@ -79,6 +79,16 @@ function loadCachedSummary() {
   }
 }
 
+function getTaskStatus(task) {
+  if (task.done) return "done";
+  if (!task.due_date) return "none";
+  const due = new Date(task.due_date);
+  const now = new Date();
+  if (due < now) return "overdue";
+  if (due - now < TWENTY_FOUR_HOURS_MS) return "soon";
+  return "upcoming";
+}
+
 function AuthScreen({ onAuthenticated }) {
   const [mode, setMode] = useState("login"); // "login" | "signup"
   const [email, setEmail] = useState("");
@@ -104,48 +114,50 @@ function AuthScreen({ onAuthenticated }) {
   }
 
   return (
-    <div>
-      <h1 style={{ textAlign: "center" }}>To-Do</h1>
+    <div className="page auth-page">
+      <div className="card">
+        <h1 style={{ textAlign: "center" }}>To-Do</h1>
 
-      <div className="auth-tabs">
-        <button
-          type="button"
-          className={mode === "login" ? "primary" : ""}
-          onClick={() => { setMode("login"); setError(null); }}
-        >
-          Log in
-        </button>
-        <button
-          type="button"
-          className={mode === "signup" ? "primary" : ""}
-          onClick={() => { setMode("signup"); setError(null); }}
-        >
-          Sign up
-        </button>
+        <div className="auth-tabs">
+          <button
+            type="button"
+            className={mode === "login" ? "primary" : ""}
+            onClick={() => { setMode("login"); setError(null); }}
+          >
+            Log in
+          </button>
+          <button
+            type="button"
+            className={mode === "signup" ? "primary" : ""}
+            onClick={() => { setMode("signup"); setError(null); }}
+          >
+            Sign up
+          </button>
+        </div>
+
+        {error && <div className="error-banner">Something went wrong: {error}</div>}
+
+        <form onSubmit={handleSubmit} className="auth-form">
+          <input
+            type="email"
+            placeholder="Email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+          />
+          <input
+            type="password"
+            placeholder="Password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            minLength={mode === "signup" ? 8 : undefined}
+            required
+          />
+          <button type="submit" className="primary" disabled={submitting}>
+            {mode === "login" ? "Log in" : "Sign up"}
+          </button>
+        </form>
       </div>
-
-      {error && <div className="error-banner">Something went wrong: {error}</div>}
-
-      <form onSubmit={handleSubmit} className="auth-form">
-        <input
-          type="email"
-          placeholder="Email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          required
-        />
-        <input
-          type="password"
-          placeholder="Password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          minLength={mode === "signup" ? 8 : undefined}
-          required
-        />
-        <button type="submit" className="primary" disabled={submitting}>
-          {mode === "login" ? "Log in" : "Sign up"}
-        </button>
-      </form>
     </div>
   );
 }
@@ -333,130 +345,165 @@ function TodoApp({ token, onLogout }) {
   }
 
   const orderedTasks = sortByPriority(tasks, summaryCache?.data?.priority_order);
+  const doneCount = tasks.filter((t) => t.done).length;
+  const undoneCount = tasks.length - doneCount;
 
   return (
-    <div>
-      <div className="topbar">
-        <h1>To-Do</h1>
-        <button onClick={onLogout}>Log out</button>
-      </div>
-
-      {error && (
-        <div className="error-banner">
-          Something went wrong: {error}
+    <div className="page">
+      <div className="card">
+        <div className="topbar">
+          <h1>To Do List</h1>
+          <button onClick={onLogout}>Log out</button>
         </div>
-      )}
 
-      {summaryLoading && (
-        <div className="loading">Loading summary...</div>
-      )}
-      {summaryError && (
-        <div className="error-banner">Summary unavailable: {summaryError}</div>
-      )}
-      {summaryCache && !summaryLoading && (
-        <div className="error-banner">
-          <p>{summaryCache.data.summary}</p>
-        </div>
-      )}
+        {error && (
+          <div className="error-banner" style={{ marginBottom: 16 }}>
+            Something went wrong: {error}
+          </div>
+        )}
 
-      <form onSubmit={handleAdd}>
-        <input
-          type="text"
-          placeholder="New task"
-          value={newText}
-          onChange={(e) => setNewText(e.target.value)}
-        />
-        <input
-          type="datetime-local"
-          value={newDueDate}
-          onChange={(e) => setNewDueDate(e.target.value)}
-        />
-        <select
-          value={newRecurrence}
-          onChange={(e) => setNewRecurrence(e.target.value)}
-        >
-          {RECURRENCE_OPTIONS.map((opt) => (
-            <option key={opt} value={opt}>{opt}</option>
-          ))}
-        </select>
-        <button type="submit" className="primary">Add</button>
-      </form>
-
-      <form onSubmit={handleSmartParse}>
-        <input
-          type="text"
-          placeholder='Try: "remind me to call mom every Sunday at 6pm"'
-          value={smartText}
-          onChange={(e) => setSmartText(e.target.value)}
-        />
-        <button type="submit" className="primary" disabled={parsing}>
-          {parsing ? "Parsing..." : "Smart Add"}
-        </button>
-      </form>
-
-      {preview && (
-        <div className="error-banner">
-          <p><strong>{preview.title}</strong></p>
-          <p>Due: {preview.due_date || "no date"}</p>
-          <p>Repeats: {preview.recurrence}</p>
-          <button className="primary" onClick={confirmSmartAdd}>Confirm & Save</button>
-          <button onClick={() => setPreview(null)}>Discard</button>
-        </div>
-      )}
-
-      <ul>
-        {orderedTasks.map((task) => (
-          <li key={task.id}>
+        <div className="layout">
+          <form onSubmit={handleAdd}>
             <input
-              type="checkbox"
-              checked={task.done}
-              onChange={() => handleToggleDone(task.id)}
+              type="text"
+              placeholder="Add your task"
+              value={newText}
+              onChange={(e) => setNewText(e.target.value)}
             />
+            <button type="submit" className="primary">Add</button>
+          </form>
 
-            {editingId === task.id ? (
-              <>
-                <input
-                  type="text"
-                  value={editingText}
-                  onChange={(e) => setEditingText(e.target.value)}
-                />
-                <input
-                  type="datetime-local"
-                  value={editingDueDate}
-                  onChange={(e) => setEditingDueDate(e.target.value)}
-                />
-                <select
-                  value={editingRecurrence}
-                  onChange={(e) => setEditingRecurrence(e.target.value)}
-                >
-                  {RECURRENCE_OPTIONS.map((opt) => (
-                    <option key={opt} value={opt}>{opt}</option>
-                  ))}
-                </select>
-                <button onClick={() => saveEdit(task.id)}>Save</button>
-                <button onClick={() => setEditingId(null)}>Cancel</button>
-              </>
-            ) : (
-              <>
-                <span className={"text" + (task.done ? " done" : "")}>
-                  {task.text}
-                </span>
-                <span className="task-meta">
-                  {task.due_date ? new Date(task.due_date).toLocaleString() : "no due date"}
-                  {" · "}
-                  {task.recurrence || "none"}
-                </span>
-                <button onClick={() => startEdit(task)}>Edit</button>
-                <button className="danger" onClick={() => handleDelete(task.id)}>Delete</button>
-              </>
-            )}
-          </li>
-        ))}
-      </ul>
+          <form onSubmit={handleAdd}>
+            <input
+              type="datetime-local"
+              value={newDueDate}
+              onChange={(e) => setNewDueDate(e.target.value)}
+            />
+            <select
+              value={newRecurrence}
+              onChange={(e) => setNewRecurrence(e.target.value)}
+            >
+              {RECURRENCE_OPTIONS.map((opt) => (
+                <option key={opt} value={opt}>{opt}</option>
+              ))}
+            </select>
+          </form>
 
-      {!loading && tasks.length === 0 && !error && (
-        <p className="loading">No tasks yet — add one above.</p>
-      )}
+          <form onSubmit={handleSmartParse}>
+            <input
+              type="text"
+              placeholder='Try: "remind me to call mom every Sunday at 6pm"'
+              value={smartText}
+              onChange={(e) => setSmartText(e.target.value)}
+            />
+            <button type="submit" className="primary" disabled={parsing}>
+              {parsing ? "Parsing..." : "Smart Add"}
+            </button>
+          </form>
+
+          {preview && (
+            <div className="smart-preview">
+              <div className="smart-preview-label">AI suggestion — confirm before saving</div>
+              <div className="smart-preview-title">{preview.title}</div>
+              <div className="smart-preview-meta">
+                {preview.due_date ? new Date(preview.due_date).toLocaleString() : "No due date"}
+                {" · "}
+                {preview.recurrence}
+              </div>
+              <div className="smart-preview-actions">
+                <button className="primary" onClick={confirmSmartAdd}>Confirm & save</button>
+                <button onClick={() => setPreview(null)}>Discard</button>
+              </div>
+            </div>
+          )}
+
+          <div className="section-title">Task List</div>
+
+          <ul>
+            {orderedTasks.map((task) => {
+              const status = getTaskStatus(task);
+              const dueLabel = task.due_date
+                ? new Date(task.due_date).toLocaleString()
+                : "No due date";
+
+              return (
+                <li key={task.id} className={`task-card status-${status}`}>
+                  <input
+                    type="checkbox"
+                    checked={task.done}
+                    onChange={() => handleToggleDone(task.id)}
+                  />
+
+                  {editingId === task.id ? (
+                    <div className="task-body">
+                      <input
+                        type="text"
+                        value={editingText}
+                        onChange={(e) => setEditingText(e.target.value)}
+                        style={{ marginBottom: 8, width: "100%" }}
+                      />
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        <input
+                          type="datetime-local"
+                          value={editingDueDate}
+                          onChange={(e) => setEditingDueDate(e.target.value)}
+                        />
+                        <select
+                          value={editingRecurrence}
+                          onChange={(e) => setEditingRecurrence(e.target.value)}
+                        >
+                          {RECURRENCE_OPTIONS.map((opt) => (
+                            <option key={opt} value={opt}>{opt}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="task-actions" style={{ marginTop: 8 }}>
+                        <button className="link-btn edit" onClick={() => saveEdit(task.id)}>Save</button>
+                        <button className="link-btn" onClick={() => setEditingId(null)}>Cancel</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="task-body">
+                        <div className="task-title">{task.text}</div>
+                        <div className="task-meta">
+                          <span>{dueLabel}</span>
+                          <span>· {task.recurrence || "none"}</span>
+                        </div>
+                      </div>
+                      <div className="task-actions">
+                        <button className="link-btn" onClick={() => handleDelete(task.id)}>Delete</button>
+                        <button className="link-btn edit" onClick={() => startEdit(task)}>Edit</button>
+                      </div>
+                    </>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+
+          {!loading && tasks.length === 0 && !error && (
+            <p className="loading">No tasks yet — add one above.</p>
+          )}
+
+          <div className="task-footer">
+            Completed: {doneCount} | Uncompleted: {undoneCount}
+          </div>
+
+          {summaryLoading && (
+            <div className="summary-loading">Loading summary...</div>
+          )}
+          {summaryError && (
+            <div className="error-banner">Summary unavailable: {summaryError}</div>
+          )}
+          {summaryCache && !summaryLoading && (
+            <div className="summary-panel">
+              <div className="summary-label">Summary</div>
+              <div className="summary-text">{summaryCache.data.summary}</div>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
